@@ -7,3 +7,4 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 fuse = "*"
 gfapi-sys = "*"
 libc = "*"
+time = "*"

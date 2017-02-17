@@ -5,6 +5,7 @@ dependencies = [
  "fuse 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gfapi-sys 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
+ "time 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
