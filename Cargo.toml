@@ -1,0 +1,9 @@
+[package]
+name = "glusterfs-fuse"
+version = "0.1.0"
+authors = ["Chris Holcombe <xfactor973@gmail.com>"]
+
+[dependencies]
+fuse = "*"
+gfapi-sys = "*"
+libc = "*"
