@@ -5,6 +5,7 @@ extern crate time;
 
 use std::collections::HashMap;
 use std::env;
+use std::fs;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
@@ -124,42 +125,53 @@ impl Filesystem for GlusterFilesystem {
     fn getattr(&mut self, _req: &Request, _ino: u64, reply: ReplyAttr) {
         println!("getattr(ino={})", _ino);
         println!("current_path: {}", self.current_path(None).to_string_lossy());
-        if _ino == ROOT {
-            let stat = self.handle().stat(Path::new("/")).unwrap();
-            let reply_attr = FileAttr {
-                ino: 1,
-                size: stat.st_size as u64,
-                blocks: stat.st_blocks as u64,
-                atime: Timespec {
-                    sec: stat.st_atime,
-                    nsec: stat.st_atime_nsec as i32,
-                },
-                mtime: Timespec {
-                    sec: stat.st_mtime,
-                    nsec: stat.st_mtime_nsec as i32,
-                },
-                ctime: Timespec {
-                    sec: stat.st_ctime,
-                    nsec: stat.st_ctime_nsec as i32,
-                },
-                crtime: Timespec { sec: 1, nsec: 0 },
-                kind: FileType::Directory,
-                perm: 0o755,
-                nlink: stat.st_nlink as u32,
-                uid: stat.st_uid,
-                gid: stat.st_gid,
-                rdev: stat.st_rdev as u32,
-                flags: 0,
-            };
-            reply.attr(&TTL, &reply_attr);
+
+       let path = if _ino == ROOT {
+        "/".into()
         } else {
-            reply.error(ENOSYS);
-        }
+            if let Some(p) = self.inodes.get(_ino) {
+                p
+            } else {
+                reply.error(ENOSYS);
+                return
+            }
+        };
+        let stat = self.handle().stat(path).unwrap();
+        let reply_attr = FileAttr {
+            ino: 1,
+            size: stat.st_size as u64,
+            blocks: stat.st_blocks as u64,
+            atime: Timespec {
+                sec: stat.st_atime,
+                nsec: stat.st_atime_nsec as i32,
+            },
+            mtime: Timespec {
+                sec: stat.st_mtime,
+                nsec: stat.st_mtime_nsec as i32,
+            },
+            ctime: Timespec {
+                sec: stat.st_ctime,
+                nsec: stat.st_ctime_nsec as i32,
+            },
+            crtime: Timespec { sec: 1, nsec: 0 },
+            kind: FileType::Directory,
+            perm: 0o755,
+            nlink: stat.st_nlink as u32,
+            uid: stat.st_uid,
+            gid: stat.st_gid,
+            rdev: stat.st_rdev as u32,
+            flags: 0,
+        };
+        reply.attr(&TTL, &reply_attr);
     }
 
     fn lookup(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEntry) {
+        let path = self.current_path(Some(_name.into());
         println!("lookup(parent={}, name={:?})", _parent, _name);
-        println!("current_path: {}", self.current_path(Some(_name.into())).to_string_lossy());
+        println!("current_path: {}", path).to_string_lossy());
+        let metadata = fs::metadata(path).unwrap();
+        let inode = metadata.st_ino();
+        self.inodes.insert(inode, path);
         // if _parent == 1 {
         //     self.parents = vec![1];
         self.set_parent(_parent);
