@@ -5,13 +5,13 @@ extern crate time;
 
 use std::env;
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use fuse::{FileAttr, Filesystem, FileType, Request, ReplyAttr, ReplyDirectory, ReplyEmpty,
            ReplyEntry, ReplyOpen, ReplyStatfs};
 use gfapi_sys::gluster::{Gluster, GlusterDirectory};
 use gfapi_sys::glfs::Struct_glfs_fd;
-use libc::{c_int, c_uchar, DT_REG, DT_DIR, DT_FIFO, DT_CHR, DT_BLK, DT_LNK, ENOSYS, O_RDWR};
+use libc::{c_int, c_uchar, DT_REG, DT_DIR, DT_FIFO, DT_CHR, DT_BLK, DT_LNK, ENOSYS};
 use time::Timespec;
 
 const TTL: Timespec = Timespec { sec: 1, nsec: 0 }; // 1 second
@@ -30,12 +30,18 @@ fn filetype_from_uchar(f_type: c_uchar) -> Option<FileType> {
 
 struct GlusterFilesystem {
     handle: Gluster,
+    current_path: PathBuf,
+    parent: u64,
 }
 
 impl GlusterFilesystem {
     fn new(volume_name: &str, server: &str, port: u16) -> Result<GlusterFilesystem, c_int> {
         let handle = Gluster::connect(volume_name, server, port).unwrap();
-        Ok(GlusterFilesystem { handle: handle })
+        Ok(GlusterFilesystem {
+            handle: handle,
+            current_path: PathBuf::from("/"),
+            parent: 1,
+        })
     }
 }
 
@@ -43,6 +49,7 @@ impl GlusterFilesystem {
 impl Filesystem for GlusterFilesystem {
     fn getattr(&mut self, _req: &Request, _ino: u64, reply: ReplyAttr) {
         println!("getattr(ino={})", _ino);
+        println!("current_path: {}", self.current_path.to_string_lossy());
         if _ino == 1 {
             let stat = self.handle.stat(Path::new("/")).unwrap();
             let reply_attr = FileAttr {
@@ -77,7 +84,41 @@ impl Filesystem for GlusterFilesystem {
     }
     fn lookup(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEntry) {
         println!("lookup(parent={}, name={:?})", _parent, _name);
-        reply.error(ENOSYS);
+        println!("current_path: {}", self.current_path.to_string_lossy());
+        if _parent == 1 {
+            self.parent = 1;
+            self.current_path.push(_name);
+            let stat =
+                self.handle.stat(Path::new(&format!("/{}", _name.to_string_lossy()))).unwrap();
+            let reply_attr = FileAttr {
+                ino: stat.st_ino,
+                size: stat.st_size as u64,
+                blocks: stat.st_blocks as u64,
+                atime: Timespec {
+                    sec: stat.st_atime,
+                    nsec: stat.st_atime_nsec as i32,
+                },
+                mtime: Timespec {
+                    sec: stat.st_mtime,
+                    nsec: stat.st_mtime_nsec as i32,
+                },
+                ctime: Timespec {
+                    sec: stat.st_ctime,
+                    nsec: stat.st_ctime_nsec as i32,
+                },
+                crtime: Timespec { sec: 1, nsec: 0 },
+                kind: FileType::Directory,
+                perm: 0o755,
+                nlink: stat.st_nlink as u32,
+                uid: stat.st_uid,
+                gid: stat.st_gid,
+                rdev: stat.st_rdev as u32,
+                flags: 0,
+            };
+            reply.entry(&TTL, &reply_attr, 0);
+        } else {
+            reply.error(ENOSYS);
+        }
     }
     fn readdir(&mut self,
                _req: &Request,
@@ -86,6 +127,7 @@ impl Filesystem for GlusterFilesystem {
                _offset: u64,
                mut reply: ReplyDirectory) {
         println!("readdir(ino={}, fh={}, offset={})", _ino, _fh, _offset);
+        println!("current_path: {}", self.current_path.to_string_lossy());
         let d = GlusterDirectory { dir_handle: _fh as *mut Struct_glfs_fd };
         let mut offset: u64 = 0;
 
@@ -110,6 +152,7 @@ impl Filesystem for GlusterFilesystem {
     }
     fn opendir(&mut self, _req: &Request, _ino: u64, _flags: u32, reply: ReplyOpen) {
         println!("opendir(ino={})", _ino);
+        println!("current_path: {}", self.current_path.to_string_lossy());
         if _ino == 1 {
             let dir_handle = self.handle.opendir(Path::new("/")).unwrap();
             // TODO: How do I store this?
