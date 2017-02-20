@@ -92,7 +92,7 @@ impl GlusterFilesystem {
         let stat = self.handle().stat(path).map_err(|e| e.to_string())?;
 
         Ok(FileAttr {
-            ino: 1,
+            ino: stat.st_ino,
             size: stat.st_size as u64,
             blocks: stat.st_blocks as u64,
             atime: Timespec {
@@ -142,7 +142,7 @@ impl GlusterFilesystem {
 
     fn set_parent(&mut self, inode: u64) {
         if let Some(index) = self.parents.iter().position(|&i| i == inode) {
-            self.parents.truncate(index);// Remove remaining elements
+            self.parents.truncate(index + 1);// Remove remaining elements
         } else {
             self.parents.push(inode);
         }
@@ -215,13 +215,20 @@ impl Filesystem for GlusterFilesystem {
         println!("opendir(ino={})", _ino);
         println!("opendir current_path: {}",
                  self.current_path(None).to_string_lossy());
-        if _ino == 1 {
-            let dir_handle = self.handle().opendir(Path::new("/")).unwrap();
-            // TODO: How do I store this?
-            reply.opened(dir_handle as u64, _flags);
+        let root = PathBuf::from("/");
+
+        let path = if _ino == ROOT {
+            &root
         } else {
-            reply.error(ENOSYS);
-        }
+            if let Some(p) = self.inodes.get(&_ino) {
+                p
+            } else {
+                reply.error(ENOSYS);
+                return;
+            }
+        };
+        let dir_handle = self.handle().opendir(path).unwrap();
+        reply.opened(dir_handle as u64, _flags);
     }
     fn releasedir(&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: u32, reply: ReplyEmpty) {
         println!("releasedir(ino={})", _ino);
