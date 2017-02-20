@@ -47,6 +47,7 @@ mod test {
             handle: None,
             parents: vec![1, 12345, 34567],
             inodes: inodes,
+            root_path: PathBuf::from("/"),
         };
 
         assert_eq!(gluster.current_path(None).to_string_lossy(), "/tmp/test");
@@ -62,6 +63,7 @@ mod test {
             handle: None,
             parents: vec![1, 12345, 34567],
             inodes: inodes,
+            root_path: PathBuf::from("/"),
         };
 
         assert_eq!(gluster.current_path(None).to_string_lossy(), "/tmp/test");
@@ -170,9 +172,7 @@ impl Filesystem for GlusterFilesystem {
         println!("getattr(ino={})", _ino);
         println!("getattr current_path: {}",
                  self.current_path(None).to_string_lossy());
-        let root = PathBuf::from("/");
-
-        let path = self.path();
+        let path = self.path(_ino);
         if path.is_none() {
             reply.error(ENOSYS);
             return;
@@ -229,9 +229,7 @@ impl Filesystem for GlusterFilesystem {
         println!("opendir(ino={})", _ino);
         println!("opendir current_path: {}",
                  self.current_path(None).to_string_lossy());
-        let root = PathBuf::from("/");
-
-        let path = self.path();
+        let path = self.path(_ino);
         if path.is_none() {
             reply.error(ENOSYS);
                 return;
