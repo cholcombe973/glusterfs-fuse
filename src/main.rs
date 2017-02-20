@@ -74,6 +74,7 @@ struct GlusterFilesystem {
     handle: Option<Gluster>,
     parents: Vec<u64>,
     inodes: HashMap<u64, PathBuf>,
+    root_path: PathBuf
 }
 
 static ROOT: u64 = 1;
@@ -87,6 +88,7 @@ impl GlusterFilesystem {
             handle: Some(handle),
             parents: vec![ROOT],
             inodes: paths,
+            root_path: PathBuf::from("/")
         })
     }
     fn stat(&self, path: &Path) -> Result<FileAttr, String> {
@@ -148,6 +150,18 @@ impl GlusterFilesystem {
             self.parents.push(inode);
         }
     }
+
+    fn path(&self, inode: u64) -> Option<&Path> {
+        if inode == ROOT {
+            Some(&self.root_path)
+        } else {
+            if let Some(p) = self.inodes.get(&inode) {
+                Some(p)
+            } else {
+                None
+            }
+        }
+    }
 }
 
 
@@ -158,16 +172,12 @@ impl Filesystem for GlusterFilesystem {
                  self.current_path(None).to_string_lossy());
         let root = PathBuf::from("/");
 
-        let path = if _ino == ROOT {
-            &root
-        } else {
-            if let Some(p) = self.inodes.get(&_ino) {
-                p
-            } else {
-                reply.error(ENOSYS);
-                return;
-            }
-        };
+        let path = self.path();
+        if path.is_none() {
+            reply.error(ENOSYS);
+            return;
+        }
+        let path = path.unwrap();
         let reply_attr = self.stat(path).unwrap();
         reply.attr(&TTL, &reply_attr);
     }
@@ -221,16 +231,12 @@ impl Filesystem for GlusterFilesystem {
                  self.current_path(None).to_string_lossy());
         let root = PathBuf::from("/");
 
-        let path = if _ino == ROOT {
-            &root
-        } else {
-            if let Some(p) = self.inodes.get(&_ino) {
-                p
-            } else {
-                reply.error(ENOSYS);
+        let path = self.path();
+        if path.is_none() {
+            reply.error(ENOSYS);
                 return;
-            }
-        };
+        }
+        let path = path.unwrap();
         let dir_handle = self.handle().opendir(path).unwrap();
         reply.opened(dir_handle as u64, _flags);
     }
