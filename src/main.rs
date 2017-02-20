@@ -48,7 +48,7 @@ mod test {
             inodes: inodes,
         };
 
-        assert_eq!(gluster.current_path().to_string_lossy(), "/tmp/test");
+        assert_eq!(gluster.current_path(None).to_string_lossy(), "/tmp/test");
     }
 
     #[test]
@@ -63,9 +63,9 @@ mod test {
             inodes: inodes,
         };
 
-        assert_eq!(gluster.current_path().to_string_lossy(), "/tmp/test");
+        assert_eq!(gluster.current_path(None).to_string_lossy(), "/tmp/test");
         gluster.set_parent(12345);
-        assert_eq!(gluster.current_path().to_string_lossy(), "/tmp");
+        assert_eq!(gluster.current_path(None).to_string_lossy(), "/tmp");
     }
 }
 
@@ -97,12 +97,15 @@ impl GlusterFilesystem {
         self.handle.as_ref().unwrap()
     }
 
-    fn current_path(&self) -> PathBuf {
+    fn current_path(&self, new_path: Option<PathBuf>) -> PathBuf {
         let mut path = PathBuf::new();
         for parent in &self.parents {
             if let Some(parent_path) = self.inodes.get(&parent) {
                 path.push(parent_path);
             }
+        }
+        if let Some(p) = new_path {
+            path.push(p);
         }
         path
     }
@@ -120,7 +123,7 @@ impl GlusterFilesystem {
 impl Filesystem for GlusterFilesystem {
     fn getattr(&mut self, _req: &Request, _ino: u64, reply: ReplyAttr) {
         println!("getattr(ino={})", _ino);
-        println!("current_path: {}", self.current_path().to_string_lossy());
+        println!("current_path: {}", self.current_path(None).to_string_lossy());
         if _ino == ROOT {
             let stat = self.handle().stat(Path::new("/")).unwrap();
             let reply_attr = FileAttr {
@@ -156,12 +159,12 @@ impl Filesystem for GlusterFilesystem {
 
     fn lookup(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEntry) {
         println!("lookup(parent={}, name={:?})", _parent, _name);
-        println!("current_path: {}", self.current_path().to_string_lossy());
+        println!("current_path: {}", self.current_path(Some(_name.into())).to_string_lossy());
         // if _parent == 1 {
         //     self.parents = vec![1];
         self.set_parent(_parent);
             let stat =
-                self.handle().stat(&self.current_path()).unwrap();
+                self.handle().stat(&self.current_path(Some(_name.into()))).unwrap();
             let reply_attr = FileAttr {
                 ino: stat.st_ino,
                 size: stat.st_size as u64,
@@ -199,7 +202,7 @@ impl Filesystem for GlusterFilesystem {
                _offset: u64,
                mut reply: ReplyDirectory) {
         println!("readdir(ino={}, fh={}, offset={})", _ino, _fh, _offset);
-        println!("current_path: {}", self.current_path().to_string_lossy());
+        println!("current_path: {}", self.current_path(None).to_string_lossy());
         let d = GlusterDirectory { dir_handle: _fh as *mut Struct_glfs_fd };
         let mut offset: u64 = 0;
 
@@ -224,7 +227,7 @@ impl Filesystem for GlusterFilesystem {
     }
     fn opendir(&mut self, _req: &Request, _ino: u64, _flags: u32, reply: ReplyOpen) {
         println!("opendir(ino={})", _ino);
-        println!("current_path: {}", self.current_path().to_string_lossy());
+        println!("current_path: {}", self.current_path(None).to_string_lossy());
         if _ino == 1 {
             let dir_handle = self.handle().opendir(Path::new("/")).unwrap();
             // TODO: How do I store this?
