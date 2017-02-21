@@ -201,9 +201,20 @@ impl Filesystem for GlusterFilesystem {
         }
         reply.ok();
     }
-    fn opendir(&mut self, _req: &Request, _ino: u64, _flags: u32, reply: ReplyOpen) {
-        println!("opendir(ino={})", _ino);
-        reply.error(ENOSYS);
+    fn opendir(&mut self, _req: &Request, ino: u64, _flags: u32, reply: ReplyOpen) {
+        println!("opendir(ino={})", ino);
+        match self.inodes.get(ino) {
+            Some(inode) => {
+                let path = &inode.path;
+                println!("opendir current_path: {}",
+                         path.to_string_lossy());
+                let dir_handle = self.handle().opendir(path).unwrap();
+                reply.opened(dir_handle as u64, _flags);
+            }, None => {
+                reply.error(ENOENT)
+            }
+        }
+        
     }
     fn releasedir(&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: u32, reply: ReplyEmpty) {
         println!("releasedir(ino={})", _ino);
