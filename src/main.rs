@@ -136,9 +136,15 @@ impl GlusterFilesystem {
 
 
 impl Filesystem for GlusterFilesystem {
-    fn getattr(&mut self, _req: &Request, _ino: u64, reply: ReplyAttr) {
-        println!("getattr(ino={})", _ino);
-        reply.error(ENOSYS);
+    fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
+        println!("getattr(ino={})", ino);
+        match self.inodes.get(ino) {
+            Some(inode) => reply.attr(&TTL, &inode.attr),
+            None => {
+                println!("getattr ENOENT: {}", ino);
+                reply.error(ENOENT);
+            }
+        };
     }
 
         // If parent is marked visited, then only perform lookup in the cache
