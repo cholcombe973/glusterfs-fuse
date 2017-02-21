@@ -220,10 +220,23 @@ impl Filesystem for GlusterFilesystem {
         println!("releasedir(ino={})", _ino);
         reply.error(ENOSYS);
     }
-    fn open(&mut self, _req: &Request, _ino: u64, _flags: u32, reply: ReplyOpen) {
-        println!("open(ino={})", _ino);
-        reply.error(ENOSYS);
+
+    fn open (&mut self, _req: &Request, ino: u64, flags: u32, reply: ReplyOpen) {
+        println!("open(ino={}, flags=0x{:x})", ino, flags);
+        // match flags & O_ACCMODE => O_RDONLY, O_WRONLY, O_RDWR
+        match self.inodes.get(ino) {
+            Some(inode) => {
+                let path = &inode.path;
+                println!("open current_path: {}",
+                         path.to_string_lossy());
+                let file_handle = self.handle().open(path, flags as i32).unwrap();
+                reply.opened(file_handle as u64, flags);
+            }, None => {
+                reply.error(ENOENT)
+            }
+        }
     }
+
     fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
         println!("statfs(ino={})", _ino);
         reply.error(ENOSYS);
@@ -246,6 +259,7 @@ impl Filesystem for GlusterFilesystem {
         println!("setattr(ino={})", _ino);
         reply.error(ENOSYS);
     }
+
     fn mknod(&mut self,
              _req: &Request,
              parent: u64,
@@ -255,23 +269,20 @@ impl Filesystem for GlusterFilesystem {
              reply: ReplyEntry) {
         println!("mknod(parent={}, name={:?})", parent, name);
         let path = self.inodes[parent].path.join(&name);
-        self.handle().mknod(&path, _mode, _rdev as u64);
-        // Clone until MIR NLL lands
-        match self.inodes.child(parent, &name).cloned() {
-            Some(child_inode) => reply.entry(&TTL, &child_inode.attr, 0),
-            None => {
-                // Clone until MIR NLL lands
-                let parent_inode = self.inodes[parent].clone();
-                let child_path = parent_inode.path.join(&name);
-                match self.stat(&child_path) {
+        match self.handle().mknod(&path, _mode, _rdev as u64) {
+            Ok(()) => {
+                match self.stat(&path) {
                     Ok(file_attr) => {
-                        let inode = self.inodes.insert_metadata(&child_path, &file_attr);
+                        let inode = self.inodes.insert_metadata(&path, &file_attr);
                         reply.entry(&TTL, &inode.attr, 0)
                     }, Err(e) => {
                         println!("lookup err: {:?}", e);
                         reply.error(ENOENT)
                     }
                 }
+            }, Err(e) => {
+                println!("mknod err: {:?}", e);
+                reply.error(ENOENT);
             }
         }
     }
@@ -285,6 +296,7 @@ impl Filesystem for GlusterFilesystem {
         println!("mkdir(parent={}, name={:?})", _parent, _name);
         reply.error(ENOSYS);
     }
+
     fn forget(&mut self, _req: &Request, _ino: u64, _nlookup: u64) {
         println!("forget(ino={:?})", _ino);
 
