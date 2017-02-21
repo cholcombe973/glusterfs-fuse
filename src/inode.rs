@@ -105,16 +105,8 @@ impl InodeStore {
     }
 
      pub fn insert_metadata<P: AsRef<Path>>(&mut self, path: P, metadata: &FileAttr) -> &Inode {
-        // Non-lexical borrows can't come soon enough
-        let ino_opt = self.get_by_path(path.as_ref())
-            .map(|inode| inode.attr.ino );
-        let ino = ino_opt.unwrap_or_else(|| {
-            self.last_ino += 1;
-            self.last_ino
-        });
-
-
-        println!("insert metadata: {} {}", ino, path.as_ref().display());
+        let ino = metadata.ino.clone();
+        println!("insert metadata: {:?} {}", metadata, path.as_ref().display());
 
         self.insert(Inode::new(path, *metadata));
         self.get(ino).unwrap()

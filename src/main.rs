@@ -147,8 +147,6 @@ impl Filesystem for GlusterFilesystem {
         };
     }
 
-        // If parent is marked visited, then only perform lookup in the cache
-    // otherwise, if the cache lookup is a miss, perform the network lookup
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         println!("lookup(parent={}, name=\"{}\")", parent, name.to_string_lossy());
 
