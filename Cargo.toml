@@ -5,6 +5,7 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 
 [dependencies]
 fuse = "*"
+sequence_trie = "*"
 gfapi-sys = "*"
 libc = "*"
 time = "*"

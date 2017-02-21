@@ -1,6 +1,7 @@
 extern crate fuse;
 extern crate gfapi_sys;
 extern crate libc;
+extern crate sequence_trie;
 extern crate time;
 
 use std::collections::HashMap;
@@ -16,6 +17,9 @@ use gfapi_sys::glfs::Struct_glfs_fd;
 use libc::{c_int, c_uchar, DT_REG, DT_DIR, DT_FIFO, DT_CHR, DT_BLK, DT_LNK, ENOENT, ENOSYS,
            S_IFMT, S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFIFO, S_IFLNK};
 use time::Timespec;
+
+mod inode;
+use inode::InodeStore;
 
 const TTL: Timespec = Timespec { sec: 1, nsec: 0 }; // 1 second
 
@@ -49,65 +53,47 @@ mod test {
     use std::collections::HashMap;
     use super::GlusterFilesystem;
     use std::path::PathBuf;
+}
 
-    #[test]
-    fn it_builds_path() {
-        let mut inodes = HashMap::new();
-        inodes.insert(1, PathBuf::from("/"));
-        inodes.insert(12345, PathBuf::from("tmp"));
-        inodes.insert(34567, PathBuf::from("test"));
-        inodes.insert(20080, PathBuf::from("foo"));
-        inodes.insert(30090, PathBuf::from("bar"));
-        let gluster = GlusterFilesystem {
-            handle: None,
-            parents: vec![1, 12345, 34567, 20080, 30090],
-            inodes: inodes,
-            root_path: PathBuf::from("/"),
-        };
+#[derive(Debug, Copy, Clone)]
+pub struct MountOptions<'a> {
+    path: &'a Path,
+    uid: u32,
+    gid: u32,
+    // read_only: bool,
+}
 
-        assert_eq!(gluster.current_path(None).to_string_lossy(),
-                   "/tmp/test/foo/bar");
-    }
-
-    #[test]
-    fn it_sets_parents() {
-        let mut inodes = HashMap::new();
-        inodes.insert(1, PathBuf::from("/"));
-        inodes.insert(12345, PathBuf::from("tmp"));
-        inodes.insert(34567, PathBuf::from("test"));
-        let mut gluster = GlusterFilesystem {
-            handle: None,
-            parents: vec![1, 12345, 34567],
-            inodes: inodes,
-            root_path: PathBuf::from("/"),
-        };
-
-        assert_eq!(gluster.current_path(None).to_string_lossy(), "/tmp/test");
-        gluster.set_parent(12345);
-        assert_eq!(gluster.current_path(None).to_string_lossy(), "/tmp");
+impl <'a> MountOptions<'a> {
+    pub fn new<P: AsRef<Path>>(path: &P) -> MountOptions {
+        MountOptions {
+            path: path.as_ref(),
+            uid: unsafe { libc::getuid() } as u32,
+            gid: unsafe { libc::getgid() } as u32,
+        }
     }
 }
 
 struct GlusterFilesystem {
     handle: Option<Gluster>,
-    parents: Vec<u64>,
-    inodes: HashMap<u64, PathBuf>,
-    root_path: PathBuf,
+    inodes: InodeStore,
+    // inodes: HashMap<u64, INode<'a>>,
+    // root_path: PathBuf,
 }
 
 static ROOT: u64 = 1;
 
 impl GlusterFilesystem {
-    fn new(volume_name: &str, server: &str, port: u16) -> Result<GlusterFilesystem, c_int> {
+    fn new(volume_name: &str, server: &str, port: u16, options: MountOptions) -> Result<(), std::io::Error> {
         let handle = Gluster::connect(volume_name, server, port).unwrap();
-        let mut paths = HashMap::new();
-        paths.insert(ROOT, PathBuf::from("/"));
-        Ok(GlusterFilesystem {
+        // let mut paths = HashMap::new();
+        // paths.insert(ROOT, INode::root());
+        let gfs= GlusterFilesystem {
             handle: Some(handle),
-            parents: vec![ROOT],
-            inodes: paths,
-            root_path: PathBuf::from("/"),
-        })
+            inodes: InodeStore::new(0o550, options.uid, options.gid),
+            // inodes: paths,
+            // root_path: PathBuf::from("/"),
+        };
+        fuse::mount(gfs, &options.path, &[])
     }
     fn stat(&self, path: &Path) -> Result<FileAttr, String> {
         let stat = self.handle().stat(path).map_err(|e| e.to_string())?;
@@ -142,46 +128,9 @@ impl GlusterFilesystem {
         })
     }
 
-    fn parent(&self) -> &u64 {
-        self.parents.last().unwrap_or(&ROOT)
-    }
 
     fn handle(&self) -> &Gluster {
         self.handle.as_ref().unwrap()
-    }
-
-    fn current_path(&self, new_path: Option<PathBuf>) -> PathBuf {
-        let mut path = PathBuf::new();
-        for parent in &self.parents {
-            if let Some(parent_path) = self.inodes.get(&parent) {
-                path.push(parent_path);
-            }
-        }
-        if let Some(p) = new_path {
-            path.push(p);
-        }
-        // println!("current_path info: {:?} {:?}", self.parents, self.inodes);
-        path
-    }
-
-    fn set_parent(&mut self, inode: u64) {
-        if let Some(index) = self.parents.iter().position(|&i| i == inode) {
-            self.parents.truncate(index + 1);// Remove remaining elements
-        } else {
-            self.parents.push(inode);
-        }
-    }
-
-    fn path(&self, inode: u64) -> Option<&Path> {
-        if inode == ROOT {
-            Some(&self.root_path)
-        } else {
-            if let Some(p) = self.inodes.get(&inode) {
-                Some(p)
-            } else {
-                None
-            }
-        }
     }
 }
 
@@ -189,32 +138,34 @@ impl GlusterFilesystem {
 impl Filesystem for GlusterFilesystem {
     fn getattr(&mut self, _req: &Request, _ino: u64, reply: ReplyAttr) {
         println!("getattr(ino={})", _ino);
-        println!("getattr current_path: {}",
-                 self.current_path(None).to_string_lossy());
-        let path = self.path(_ino);
-        if path.is_none() {
-            reply.error(ENOSYS);
-            return;
-        }
-        let path = path.unwrap();
-        let reply_attr = self.stat(path).unwrap();
-        reply.attr(&TTL, &reply_attr);
+        reply.error(ENOSYS);
     }
 
-    fn lookup(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEntry) {
-        self.set_parent(_parent);
-        println!("lookup(parent={}, name={:?})", _parent, _name);
-        println!("lookup current_path: {}",
-                 self.current_path(Some(_name.into())).to_string_lossy());
-        if let Ok(reply_attr) = self.stat(&self.current_path(Some(_name.into()))) {
-            self.inodes.insert(reply_attr.ino, _name.into());
-            reply.entry(&TTL, &reply_attr, 0);
-        } else {
-            // Remove the parent if the directory doesn't exist
-            // self.parents.pop();
-            reply.error(ENOENT);
+        // If parent is marked visited, then only perform lookup in the cache
+    // otherwise, if the cache lookup is a miss, perform the network lookup
+    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        println!("lookup(parent={}, name=\"{}\")", parent, name.to_string_lossy());
+
+        // Clone until MIR NLL lands
+        match self.inodes.child(parent, &name).cloned() {
+            Some(child_inode) => reply.entry(&TTL, &child_inode.attr, 0),
+            None => {
+                // Clone until MIR NLL lands
+                let parent_inode = self.inodes[parent].clone();
+                let child_path = parent_inode.path.join(&name);
+                match self.stat(&child_path) {
+                    Ok(file_attr) => {
+                        let inode = self.inodes.insert_metadata(&child_path, &file_attr);
+                        reply.entry(&TTL, &inode.attr, 0)
+                    }, Err(e) => {
+                        println!("lookup err: {:?}", e);
+                        reply.error(ENOENT)
+                    }
+                }
+            }
         }
     }
+
     fn readdir(&mut self,
                _req: &Request,
                _ino: u64,
@@ -222,8 +173,8 @@ impl Filesystem for GlusterFilesystem {
                _offset: u64,
                mut reply: ReplyDirectory) {
         println!("readdir(ino={}, fh={}, offset={})", _ino, _fh, _offset);
-        println!("readdir current_path: {}",
-                 self.current_path(None).to_string_lossy());
+        // println!("readdir current_path: {}",
+        //          self.current_path(None).to_string_lossy());
         let d = GlusterDirectory { dir_handle: _fh as *mut Struct_glfs_fd };
         let mut offset: u64 = 0;
 
@@ -248,18 +199,7 @@ impl Filesystem for GlusterFilesystem {
     }
     fn opendir(&mut self, _req: &Request, _ino: u64, _flags: u32, reply: ReplyOpen) {
         println!("opendir(ino={})", _ino);
-        println!("opendir current_path: {}",
-                 self.current_path(None).to_string_lossy());
-        println!("opendir parents: {:?}", self.parents);
-        println!("opendir inodes: {:?}", self.inodes);
-        let path = self.path(_ino);
-        if path.is_none() {
-            reply.error(ENOSYS);
-            return;
-        }
-        let path = path.unwrap();
-        let dir_handle = self.handle().opendir(path).unwrap();
-        reply.opened(dir_handle as u64, _flags);
+        reply.error(ENOSYS);
     }
     fn releasedir(&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: u32, reply: ReplyEmpty) {
         println!("releasedir(ino={})", _ino);
@@ -506,7 +446,6 @@ fn main() {
         return;
     }
     println!("mountpoint: {:?}", mountpoint);
-    let gfs = GlusterFilesystem::new("test", "localhost", 24007).unwrap();
-    let _ = fuse::mount(gfs, &mountpoint, &[]);
+    let _ = GlusterFilesystem::new("test", "localhost", 24007, MountOptions::new(&mountpoint)).unwrap();
     println!("unmounted");
 }
