@@ -445,13 +445,34 @@ impl Filesystem for GlusterFilesystem {
 
     fn create(&mut self,
               _req: &Request,
-              _parent: u64,
-              _name: &OsStr,
-              _mode: u32,
-              _flags: u32,
+              parent: u64,
+              name: &OsStr,
+              mode: u32,
+              flags: u32,
               reply: ReplyCreate) {
-        println!("create(name={:?})", _name);
-        reply.error(ENOSYS);
+        println!("create(name={:?})", name);
+        
+        // Clone until MIR NLL lands
+        let parent_inode = self.inodes[parent].clone();
+        let child_path = parent_inode.path.join(&name);
+        match self.handle().create(&child_path, flags as i32, mode) {
+            Ok(fh) => {
+                match self.stat(&child_path) {
+                    Ok(file_attr) => {
+                        let inode = self.inodes.insert_metadata(&child_path, &file_attr);
+                        reply.created(&TTL, &inode.attr, 0, fh as u64, flags)
+                    }, Err(e) => {
+                        println!("lookup err: {:?}", e);
+                        reply.error(ENOENT)
+                    }
+                }
+            }, Err(e) => {
+                println!("create err: {:?}", e);
+                reply.error(ENOENT);
+            }
+        }
+
+        
     }
 
     fn getlk(&mut self,
