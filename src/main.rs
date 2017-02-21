@@ -4,17 +4,16 @@ extern crate libc;
 extern crate sequence_trie;
 extern crate time;
 
-use std::collections::HashMap;
 use std::env;
 use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 
 use fuse::{FileAttr, Filesystem, FileType, Request, ReplyAttr, ReplyDirectory, ReplyEmpty,
            ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyData, ReplyXattr, ReplyCreate,
            ReplyLock};
 use gfapi_sys::gluster::{Gluster, GlusterDirectory};
 use gfapi_sys::glfs::Struct_glfs_fd;
-use libc::{c_int, c_uchar, DT_REG, DT_DIR, DT_FIFO, DT_CHR, DT_BLK, DT_LNK, ENOENT, ENOSYS,
+use libc::{c_uchar, DT_REG, DT_DIR, DT_FIFO, DT_CHR, DT_BLK, DT_LNK, ENOENT, ENOSYS,
            S_IFMT, S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFIFO, S_IFLNK};
 use time::Timespec;
 
@@ -79,8 +78,6 @@ struct GlusterFilesystem {
     // inodes: HashMap<u64, INode<'a>>,
     // root_path: PathBuf,
 }
-
-static ROOT: u64 = 1;
 
 impl GlusterFilesystem {
     fn new(volume_name: &str, server: &str, port: u16, options: MountOptions) -> Result<(), std::io::Error> {
@@ -214,7 +211,7 @@ impl Filesystem for GlusterFilesystem {
                 reply.error(ENOENT)
             }
         }
-        
+
     }
     fn releasedir(&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: u32, reply: ReplyEmpty) {
         println!("releasedir(ino={})", _ino);
@@ -289,12 +286,28 @@ impl Filesystem for GlusterFilesystem {
 
     fn mkdir(&mut self,
              _req: &Request,
-             _parent: u64,
-             _name: &OsStr,
+             parent: u64,
+             name: &OsStr,
              _mode: u32,
              reply: ReplyEntry) {
-        println!("mkdir(parent={}, name={:?})", _parent, _name);
-        reply.error(ENOSYS);
+        println!("mkdir(parent={}, name={:?})", parent, name);
+        let path = self.inodes[parent].path.join(&name);
+        match self.handle().mkdir(&path, _mode) {
+            Ok(()) => {
+                match self.stat(&path) {
+                    Ok(file_attr) => {
+                        let inode = self.inodes.insert_metadata(&path, &file_attr);
+                        reply.entry(&TTL, &inode.attr, 0)
+                    }, Err(e) => {
+                        println!("lookup err: {:?}", e);
+                        reply.error(ENOENT)
+                    }
+                }
+            }, Err(e) => {
+                println!("mknod err: {:?}", e);
+                reply.error(ENOENT);
+            }
+        }
     }
 
     fn forget(&mut self, _req: &Request, _ino: u64, _nlookup: u64) {
@@ -453,7 +466,7 @@ impl Filesystem for GlusterFilesystem {
               flags: u32,
               reply: ReplyCreate) {
         println!("create(name={:?})", name);
-        
+
         // Clone until MIR NLL lands
         let parent_inode = self.inodes[parent].clone();
         let child_path = parent_inode.path.join(&name);
@@ -474,7 +487,7 @@ impl Filesystem for GlusterFilesystem {
             }
         }
 
-        
+
     }
 
     fn getlk(&mut self,
