@@ -13,7 +13,8 @@ use fuse::{FileAttr, Filesystem, FileType, Request, ReplyAttr, ReplyDirectory, R
            ReplyLock};
 use gfapi_sys::gluster::{Gluster, GlusterDirectory};
 use gfapi_sys::glfs::Struct_glfs_fd;
-use libc::{c_int, c_uchar, DT_REG, DT_DIR, DT_FIFO, DT_CHR, DT_BLK, DT_LNK, ENOENT, ENOSYS};
+use libc::{c_int, c_uchar, DT_REG, DT_DIR, DT_FIFO, DT_CHR, DT_BLK, DT_LNK, ENOENT, ENOSYS,
+           S_IFMT, S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFIFO, S_IFLNK};
 use time::Timespec;
 
 const TTL: Timespec = Timespec { sec: 1, nsec: 0 }; // 1 second
@@ -30,11 +31,23 @@ fn filetype_from_uchar(f_type: c_uchar) -> Option<FileType> {
     }
 }
 
+fn filetype_from_mode(mode_t: u32) -> Option<FileType> {
+    let bits = mode_t & S_IFMT;
+    match bits {
+        S_IFREG => Some(FileType::RegularFile),
+        S_IFDIR => Some(FileType::Directory),
+        S_IFIFO => Some(FileType::NamedPipe),
+        S_IFCHR => Some(FileType::CharDevice),
+        S_IFBLK => Some(FileType::BlockDevice),
+        S_IFLNK => Some(FileType::Symlink),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;
     use super::GlusterFilesystem;
-    // use gfapi_sys;
     use std::path::PathBuf;
 
     #[test]
@@ -43,14 +56,17 @@ mod test {
         inodes.insert(1, PathBuf::from("/"));
         inodes.insert(12345, PathBuf::from("tmp"));
         inodes.insert(34567, PathBuf::from("test"));
+        inodes.insert(20080, PathBuf::from("foo"));
+        inodes.insert(30090, PathBuf::from("bar"));
         let gluster = GlusterFilesystem {
             handle: None,
-            parents: vec![1, 12345, 34567],
+            parents: vec![1, 12345, 34567, 20080, 30090],
             inodes: inodes,
             root_path: PathBuf::from("/"),
         };
 
-        assert_eq!(gluster.current_path(None).to_string_lossy(), "/tmp/test");
+        assert_eq!(gluster.current_path(None).to_string_lossy(),
+                   "/tmp/test/foo/bar");
     }
 
     #[test]
@@ -76,7 +92,7 @@ struct GlusterFilesystem {
     handle: Option<Gluster>,
     parents: Vec<u64>,
     inodes: HashMap<u64, PathBuf>,
-    root_path: PathBuf
+    root_path: PathBuf,
 }
 
 static ROOT: u64 = 1;
@@ -90,12 +106,14 @@ impl GlusterFilesystem {
             handle: Some(handle),
             parents: vec![ROOT],
             inodes: paths,
-            root_path: PathBuf::from("/")
+            root_path: PathBuf::from("/"),
         })
     }
     fn stat(&self, path: &Path) -> Result<FileAttr, String> {
         let stat = self.handle().stat(path).map_err(|e| e.to_string())?;
 
+        let device_type = filetype_from_mode(stat.st_mode).ok_or(
+            format!("Unable to determine file type of: {}", stat.st_mode))?;
         Ok(FileAttr {
             ino: stat.st_ino,
             size: stat.st_size as u64,
@@ -113,7 +131,8 @@ impl GlusterFilesystem {
                 nsec: stat.st_ctime_nsec as i32,
             },
             crtime: Timespec { sec: 1, nsec: 0 },
-            kind: FileType::Directory,
+            kind: device_type,
+            // TODO: Extract the permissions from the mode_t field
             perm: 0o755,
             nlink: stat.st_nlink as u32,
             uid: stat.st_uid,
@@ -141,7 +160,7 @@ impl GlusterFilesystem {
         if let Some(p) = new_path {
             path.push(p);
         }
-        println!("current_path info: {:?} {:?}", self.parents, self.inodes);
+        // println!("current_path info: {:?} {:?}", self.parents, self.inodes);
         path
     }
 
@@ -191,6 +210,8 @@ impl Filesystem for GlusterFilesystem {
             self.inodes.insert(reply_attr.ino, _name.into());
             reply.entry(&TTL, &reply_attr, 0);
         } else {
+            // Remove the parent if the directory doesn't exist
+            // self.parents.pop();
             reply.error(ENOENT);
         }
     }
@@ -229,10 +250,12 @@ impl Filesystem for GlusterFilesystem {
         println!("opendir(ino={})", _ino);
         println!("opendir current_path: {}",
                  self.current_path(None).to_string_lossy());
+        println!("opendir parents: {:?}", self.parents);
+        println!("opendir inodes: {:?}", self.inodes);
         let path = self.path(_ino);
         if path.is_none() {
             reply.error(ENOSYS);
-                return;
+            return;
         }
         let path = path.unwrap();
         let dir_handle = self.handle().opendir(path).unwrap();
