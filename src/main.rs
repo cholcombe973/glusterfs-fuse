@@ -373,9 +373,11 @@ impl Filesystem for GlusterFilesystem {
         reply.error(ENOSYS);
     }
 
-    fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
+    fn flush(&mut self, _req: &Request, _ino: u64, fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
         println!("flush(ino={:?})", _ino);
-        reply.error(ENOSYS);
+        // reply.error(ENOSYS);
+        let _ = self.handle().close(fh as *mut Struct_glfs_fd);
+        reply.ok();
     }
 
     fn release(&mut self,
