@@ -248,13 +248,32 @@ impl Filesystem for GlusterFilesystem {
     }
     fn mknod(&mut self,
              _req: &Request,
-             _parent: u64,
-             _name: &OsStr,
+             parent: u64,
+             name: &OsStr,
              _mode: u32,
              _rdev: u32,
              reply: ReplyEntry) {
-        println!("mknod(parent={}, name={:?})", _parent, _name);
-        reply.error(ENOSYS);
+        println!("mknod(parent={}, name={:?})", parent, name);
+        let path = self.inodes[parent].path.join(&name);
+        self.handle().mknod(&path, _mode, _rdev as u64);
+        // Clone until MIR NLL lands
+        match self.inodes.child(parent, &name).cloned() {
+            Some(child_inode) => reply.entry(&TTL, &child_inode.attr, 0),
+            None => {
+                // Clone until MIR NLL lands
+                let parent_inode = self.inodes[parent].clone();
+                let child_path = parent_inode.path.join(&name);
+                match self.stat(&child_path) {
+                    Ok(file_attr) => {
+                        let inode = self.inodes.insert_metadata(&child_path, &file_attr);
+                        reply.entry(&TTL, &inode.attr, 0)
+                    }, Err(e) => {
+                        println!("lookup err: {:?}", e);
+                        reply.error(ENOENT)
+                    }
+                }
+            }
+        }
     }
 
     fn mkdir(&mut self,
