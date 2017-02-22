@@ -318,14 +318,34 @@ impl Filesystem for GlusterFilesystem {
         reply.error(ENOSYS);
     }
 
-    fn unlink(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEmpty) {
-        println!("unlink(name={:?})", _name);
-        reply.error(ENOSYS);
+    fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        println!("unlink(name={:?})", name);
+        let parent_inode = self.inodes[parent].clone();
+        let target = parent_inode.path.join(&name);
+        match self.handle().unlink(&target) {
+            Ok(_) => {
+                reply.ok();
+            }
+            Err(e) => {
+                println!("unlink err: {:?}", e);
+                reply.error(ENOENT);
+            }
+        }
     }
 
-    fn rmdir(&mut self, _req: &Request, _parent: u64, _name: &OsStr, reply: ReplyEmpty) {
-        println!("rmdir(name={:?})", _name);
-        reply.error(ENOSYS);
+    fn rmdir(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        println!("rmdir(name={:?})", name);
+        let parent_inode = self.inodes[parent].clone();
+        let target = parent_inode.path.join(&name);
+        match self.handle().rmdir(&target) {
+            Ok(_) => {
+                reply.ok();
+            }
+            Err(e) => {
+                println!("rmdir err: {:?}", e);
+                reply.error(ENOENT);
+            }
+        }
     }
 
     fn symlink(&mut self,
@@ -388,40 +408,99 @@ impl Filesystem for GlusterFilesystem {
     /// Create a hard link.
     fn link(&mut self,
             _req: &Request,
-            _ino: u64,
-            _newparent: u64,
-            _newname: &OsStr,
+            ino: u64,
+            newparent: u64,
+            newname: &OsStr,
             reply: ReplyEntry) {
-        println!("link(ino={:?})", _ino);
-        reply.error(ENOSYS);
+        println!("link(ino={:?})", ino);
+        let old_path = match self.inodes.get(ino) {
+            Some(inode) => inode.path.clone(),
+            None => {
+                reply.error(ENOENT);
+                return;
+            }
+        };
+
+        let new_inode = self.inodes[newparent].clone();
+        let new_path = new_inode.path.join(&newname);
+
+        match self.handle().link(&old_path, &new_path) {
+            Ok(_) => {
+                match self.stat(&new_path) {
+                    Ok(file_attr) => {
+                        let inode = self.inodes.insert_metadata(&new_path, &file_attr);
+                        reply.entry(&TTL, &inode.attr, 0)
+                    }
+                    Err(e) => {
+                        println!("lookup err: {:?}", e);
+                        reply.error(ENOENT)
+                    }
+                }
+            }
+            Err(e) => {
+                println!("link err: {:?}", e);
+                reply.error(ENOENT);
+            }
+        }
     }
 
     fn read(&mut self,
             _req: &Request,
             _ino: u64,
-            _fh: u64,
-            _offset: u64,
+            fh: u64,
+            offset: u64,
             _size: u32,
             reply: ReplyData) {
         println!("read(ino={:?})", _ino);
-        reply.error(ENOSYS);
+
+        // TODO: Would this be more efficient as a stack allocated slice?
+        let mut fill_buffer: Vec<u8> = Vec::with_capacity(_size as usize);
+
+        match self.handle().pread(fh as *mut Struct_glfs_fd,
+                                  &mut fill_buffer,
+                                  _size as usize,
+                                  offset as i64,
+                                  0) {
+            Ok(bytes_read) => {
+                fill_buffer.truncate(bytes_read as usize);
+                reply.data(&fill_buffer);
+            }
+            Err(e) => {
+                println!("read err: {:?}", e);
+                reply.error(ENOENT);
+            }
+
+        }
     }
 
     fn write(&mut self,
              _req: &Request,
-             _ino: u64,
-             _fh: u64,
-             _offset: u64,
-             _data: &[u8],
-             _flags: u32,
+             ino: u64,
+             fh: u64,
+             offset: u64,
+             data: &[u8],
+             flags: u32,
              reply: ReplyWrite) {
-        println!("write(ino={:?})", _ino);
-        reply.error(ENOSYS);
+        println!("write(ino={:?})", ino);
+
+        // Should already have the file handle open here
+        match self.handle().pwrite(fh as *mut Struct_glfs_fd,
+                                   data,
+                                   data.len(),
+                                   offset as i64,
+                                   flags as i32) {
+            Ok(bytes_written) => {
+                reply.written(bytes_written as u32);
+            }
+            Err(e) => {
+                println!("write err: {:?}", e);
+                reply.error(ENOENT);
+            }
+        }
     }
 
     fn flush(&mut self, _req: &Request, _ino: u64, fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
         println!("flush(ino={:?})", _ino);
-        // reply.error(ENOSYS);
         let _ = self.handle().close(fh as *mut Struct_glfs_fd);
         reply.ok();
     }
