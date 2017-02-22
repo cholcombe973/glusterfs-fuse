@@ -6,15 +6,15 @@ extern crate time;
 
 use std::env;
 use std::ffi::OsStr;
-use std::path::{Path};
+use std::path::Path;
 
 use fuse::{FileAttr, Filesystem, FileType, Request, ReplyAttr, ReplyDirectory, ReplyEmpty,
            ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyData, ReplyXattr, ReplyCreate,
            ReplyLock};
 use gfapi_sys::gluster::{Gluster, GlusterDirectory};
 use gfapi_sys::glfs::Struct_glfs_fd;
-use libc::{c_uchar, DT_REG, DT_DIR, DT_FIFO, DT_CHR, DT_BLK, DT_LNK, ENOENT, ENOSYS,
-           S_IFMT, S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFIFO, S_IFLNK};
+use libc::{c_uchar, DT_REG, DT_DIR, DT_FIFO, DT_CHR, DT_BLK, DT_LNK, ENOENT, ENOSYS, S_IFMT,
+           S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFIFO, S_IFLNK};
 use time::Timespec;
 
 mod inode;
@@ -58,11 +58,10 @@ mod test {
 pub struct MountOptions<'a> {
     path: &'a Path,
     uid: u32,
-    gid: u32,
-    // read_only: bool,
+    gid: u32, // read_only: bool,
 }
 
-impl <'a> MountOptions<'a> {
+impl<'a> MountOptions<'a> {
     pub fn new<P: AsRef<Path>>(path: &P) -> MountOptions {
         MountOptions {
             path: path.as_ref(),
@@ -74,21 +73,22 @@ impl <'a> MountOptions<'a> {
 
 struct GlusterFilesystem {
     handle: Option<Gluster>,
-    inodes: InodeStore,
-    // inodes: HashMap<u64, INode<'a>>,
-    // root_path: PathBuf,
+    inodes: InodeStore, /* inodes: HashMap<u64, INode<'a>>,
+                         * root_path: PathBuf, */
 }
 
 impl GlusterFilesystem {
-    fn new(volume_name: &str, server: &str, port: u16, options: MountOptions) -> Result<(), std::io::Error> {
+    fn new(volume_name: &str,
+           server: &str,
+           port: u16,
+           options: MountOptions)
+           -> Result<(), std::io::Error> {
         let handle = Gluster::connect(volume_name, server, port).unwrap();
         // let mut paths = HashMap::new();
         // paths.insert(ROOT, INode::root());
-        let gfs= GlusterFilesystem {
+        let gfs = GlusterFilesystem {
             handle: Some(handle),
             inodes: InodeStore::new(0o550, options.uid, options.gid),
-            // inodes: paths,
-            // root_path: PathBuf::from("/"),
         };
         fuse::mount(gfs, &options.path, &[])
     }
@@ -145,7 +145,9 @@ impl Filesystem for GlusterFilesystem {
     }
 
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        println!("lookup(parent={}, name=\"{}\")", parent, name.to_string_lossy());
+        println!("lookup(parent={}, name=\"{}\")",
+                 parent,
+                 name.to_string_lossy());
 
         // Clone until MIR NLL lands
         match self.inodes.child(parent, &name).cloned() {
@@ -158,7 +160,8 @@ impl Filesystem for GlusterFilesystem {
                     Ok(file_attr) => {
                         let inode = self.inodes.insert_metadata(&child_path, &file_attr);
                         reply.entry(&TTL, &inode.attr, 0)
-                    }, Err(e) => {
+                    }
+                    Err(e) => {
                         println!("lookup err: {:?}", e);
                         reply.error(ENOENT)
                     }
@@ -203,13 +206,11 @@ impl Filesystem for GlusterFilesystem {
         match self.inodes.get(ino) {
             Some(inode) => {
                 let path = &inode.path;
-                println!("opendir current_path: {}",
-                         path.to_string_lossy());
+                println!("opendir current_path: {}", path.to_string_lossy());
                 let dir_handle = self.handle().opendir(path).unwrap();
                 reply.opened(dir_handle as u64, _flags);
-            }, None => {
-                reply.error(ENOENT)
             }
+            None => reply.error(ENOENT),
         }
 
     }
@@ -218,19 +219,17 @@ impl Filesystem for GlusterFilesystem {
         reply.error(ENOSYS);
     }
 
-    fn open (&mut self, _req: &Request, ino: u64, flags: u32, reply: ReplyOpen) {
+    fn open(&mut self, _req: &Request, ino: u64, flags: u32, reply: ReplyOpen) {
         println!("open(ino={}, flags=0x{:x})", ino, flags);
         // match flags & O_ACCMODE => O_RDONLY, O_WRONLY, O_RDWR
         match self.inodes.get(ino) {
             Some(inode) => {
                 let path = &inode.path;
-                println!("open current_path: {}",
-                         path.to_string_lossy());
+                println!("open current_path: {}", path.to_string_lossy());
                 let file_handle = self.handle().open(path, flags as i32).unwrap();
                 reply.opened(file_handle as u64, flags);
-            }, None => {
-                reply.error(ENOENT)
             }
+            None => reply.error(ENOENT),
         }
     }
 
@@ -272,24 +271,21 @@ impl Filesystem for GlusterFilesystem {
                     Ok(file_attr) => {
                         let inode = self.inodes.insert_metadata(&path, &file_attr);
                         reply.entry(&TTL, &inode.attr, 0)
-                    }, Err(e) => {
+                    }
+                    Err(e) => {
                         println!("lookup err: {:?}", e);
                         reply.error(ENOENT)
                     }
                 }
-            }, Err(e) => {
+            }
+            Err(e) => {
                 println!("mknod err: {:?}", e);
                 reply.error(ENOENT);
             }
         }
     }
 
-    fn mkdir(&mut self,
-             _req: &Request,
-             parent: u64,
-             name: &OsStr,
-             _mode: u32,
-             reply: ReplyEntry) {
+    fn mkdir(&mut self, _req: &Request, parent: u64, name: &OsStr, _mode: u32, reply: ReplyEntry) {
         println!("mkdir(parent={}, name={:?})", parent, name);
         let path = self.inodes[parent].path.join(&name);
         match self.handle().mkdir(&path, _mode) {
@@ -298,12 +294,14 @@ impl Filesystem for GlusterFilesystem {
                     Ok(file_attr) => {
                         let inode = self.inodes.insert_metadata(&path, &file_attr);
                         reply.entry(&TTL, &inode.attr, 0)
-                    }, Err(e) => {
+                    }
+                    Err(e) => {
                         println!("lookup err: {:?}", e);
                         reply.error(ENOENT)
                     }
                 }
-            }, Err(e) => {
+            }
+            Err(e) => {
                 println!("mkdir err: {:?}", e);
                 reply.error(ENOENT);
             }
@@ -332,24 +330,59 @@ impl Filesystem for GlusterFilesystem {
 
     fn symlink(&mut self,
                _req: &Request,
-               _parent: u64,
-               _name: &OsStr,
-               _link: &Path,
+               parent: u64,
+               name: &OsStr,
+               link: &Path,
                reply: ReplyEntry) {
-        println!("symlink(name={:?})", _name);
-        reply.error(ENOSYS);
+        println!("symlink(name={:?})", name);
+        let parent_inode = self.inodes[parent].clone();
+        // TODO Is this correct?
+        let target = parent_inode.path.join(&name);
+
+        match self.handle().symlink(&target, &link) {
+            Ok(_) => {
+                match self.stat(&target) {
+                    Ok(file_attr) => {
+                        // TODO Is this correct?
+                        let inode = self.inodes.insert_metadata(&target, &file_attr);
+                        reply.entry(&TTL, &inode.attr, 0)
+                    }
+                    Err(e) => {
+                        println!("lookup err: {:?}", e);
+                        reply.error(ENOENT)
+                    }
+                }
+            }
+            Err(e) => {
+                println!("symlink err: {:?}", e);
+                reply.error(ENOENT);
+            }
+        }
     }
 
     /// Rename a file.
     fn rename(&mut self,
               _req: &Request,
-              _parent: u64,
-              _name: &OsStr,
-              _newparent: u64,
-              _newname: &OsStr,
+              parent: u64,
+              name: &OsStr,
+              newparent: u64,
+              newname: &OsStr,
               reply: ReplyEmpty) {
-        println!("rename(name={:?})", _name);
-        reply.error(ENOSYS);
+        println!("rename(name={:?} to {:?})", name, newname);
+        let parent_inode = self.inodes[parent].clone();
+        let child_old_path = parent_inode.path.join(&name);
+
+        let new_parent_inode = self.inodes[newparent].clone();
+        let new_child_path = new_parent_inode.path.join(&newname);
+        match self.handle().rename(&child_old_path, &new_child_path) {
+            Ok(_) => {
+                reply.ok();
+            }
+            Err(e) => {
+                println!("rename err: {:?}", e);
+                reply.error(ENOENT);
+            }
+        }
     }
 
     /// Create a hard link.
@@ -437,22 +470,21 @@ impl Filesystem for GlusterFilesystem {
                 return;
             }
         };
-        match self.handle().setxattr(&path, &name.to_string_lossy().into_owned(), value, flags as i32) {
+        match self.handle().setxattr(&path,
+                                     &name.to_string_lossy().into_owned(),
+                                     value,
+                                     flags as i32) {
             Ok(_) => {
                 reply.ok();
-            }, Err(e) => {
+            }
+            Err(e) => {
                 println!("setxattr err: {:?}", e);
                 reply.error(ENOENT);
             }
         }
     }
 
-    fn getxattr(&mut self,
-                _req: &Request,
-                ino: u64,
-                name: &OsStr,
-                _size: u32,
-                reply: ReplyXattr) {
+    fn getxattr(&mut self, _req: &Request, ino: u64, name: &OsStr, _size: u32, reply: ReplyXattr) {
         println!("getxattr(ino={:?})", ino);
 
         let path = match self.inodes.get(ino) {
@@ -469,12 +501,14 @@ impl Filesystem for GlusterFilesystem {
                     Ok(file_attr) => {
                         self.inodes.insert_metadata(&path, &file_attr);
                         reply.data(&data.as_bytes());
-                    }, Err(e) => {
+                    }
+                    Err(e) => {
                         println!("lookup err: {:?}", e);
                         reply.error(ENOENT)
                     }
                 }
-            }, Err(e) => {
+            }
+            Err(e) => {
                 println!("getxattr err: {:?}", e);
                 reply.error(ENOENT);
             }
@@ -500,7 +534,8 @@ impl Filesystem for GlusterFilesystem {
         match self.handle().removexattr(&path, &name.to_string_lossy().into_owned()) {
             Ok(_) => {
                 reply.ok();
-            }, Err(e) => {
+            }
+            Err(e) => {
                 println!("removexattr err: {:?}", e);
                 reply.error(ENOENT);
             }
@@ -530,12 +565,14 @@ impl Filesystem for GlusterFilesystem {
                     Ok(file_attr) => {
                         let inode = self.inodes.insert_metadata(&child_path, &file_attr);
                         reply.created(&TTL, &inode.attr, 0, fh as u64, flags)
-                    }, Err(e) => {
+                    }
+                    Err(e) => {
                         println!("lookup err: {:?}", e);
                         reply.error(ENOENT)
                     }
                 }
-            }, Err(e) => {
+            }
+            Err(e) => {
                 println!("create err: {:?}", e);
                 reply.error(ENOENT);
             }
@@ -582,6 +619,7 @@ fn main() {
         return;
     }
     println!("mountpoint: {:?}", mountpoint);
-    let _ = GlusterFilesystem::new("test", "localhost", 24007, MountOptions::new(&mountpoint)).unwrap();
+    let _ = GlusterFilesystem::new("test", "localhost", 24007, MountOptions::new(&mountpoint))
+        .unwrap();
     println!("unmounted");
 }

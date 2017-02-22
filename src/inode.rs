@@ -11,8 +11,7 @@ use sequence_trie::SequenceTrie;
 #[derive(Debug, Clone)]
 pub struct Inode {
     pub path: PathBuf,
-    pub attr: FileAttr,
-    // pub visited: bool,
+    pub attr: FileAttr, // pub visited: bool,
 }
 
 impl Inode {
@@ -32,7 +31,7 @@ pub struct InodeStore {
 }
 
 fn path_to_sequence(path: &Path) -> Vec<OsString> {
-    path.iter().map(|s| s.to_owned() ).collect()
+    path.iter().map(|s| s.to_owned()).collect()
 }
 
 impl InodeStore {
@@ -72,8 +71,11 @@ impl InodeStore {
 
         if let Some(old_inode) = self.inode_map.insert(ino, inode) {
             if old_inode.path != path {
-                panic!("Corrupted inode store: reinserted conflicting ino {} (path={}, oldpath={})",
-                        ino, path.display(), old_inode.path.display());
+                panic!("Corrupted inode store: reinserted conflicting ino {} (path={}, \
+                        oldpath={})",
+                       ino,
+                       path.display(),
+                       old_inode.path.display());
             } else {
                 println!("Updating ino {} at path {}", ino, path.display());
             }
@@ -81,11 +83,16 @@ impl InodeStore {
         }
 
         if !self.ino_trie.insert(&sequence, ino) {
-            let mut node = self.ino_trie.get_mut_node(&sequence)
-                                .expect(&format!("Corrupt inode store: couldn't insert or modify ino_trie at {:?}", &sequence));
-            // TODO: figure out why this check triggers a false alarm panic on backspacing to dir and then tabbing
+            let mut node = self.ino_trie
+                .get_mut_node(&sequence)
+                .expect(&format!("Corrupt inode store: couldn't insert or modify ino_trie at \
+                                  {:?}",
+                                 &sequence));
+            // TODO: figure out why this check triggers a false alarm panic on backspacing
+            // to dir and then tabbing
             // if node.value.is_some() {
-            //     panic!("Corrupt inode store: reinserted ino {} into ino_trie, prev value: {}", ino, node.value.unwrap());
+            //     panic!("Corrupt inode store: reinserted ino {} into ino_trie, prev value: {}",
+            // ino, node.value.unwrap());
             // }
             node.value = Some(ino);
         }
@@ -104,9 +111,11 @@ impl InodeStore {
         self.ino_trie.get(&sequence).and_then(|ino| self.get(*ino))
     }
 
-     pub fn insert_metadata<P: AsRef<Path>>(&mut self, path: P, metadata: &FileAttr) -> &Inode {
+    pub fn insert_metadata<P: AsRef<Path>>(&mut self, path: P, metadata: &FileAttr) -> &Inode {
         let ino = metadata.ino.clone();
-        println!("insert metadata: {:?} {}", metadata, path.as_ref().display());
+        println!("insert metadata: {:?} {}",
+                 metadata,
+                 path.as_ref().display());
 
         self.insert(Inode::new(path, *metadata));
         self.get(ino).unwrap()
@@ -117,7 +126,7 @@ impl InodeStore {
             .and_then(|inode| {
                 let mut sequence = path_to_sequence(&inode.path);
                 sequence.push(name.as_ref().to_owned());
-                self.ino_trie.get(&sequence).and_then(|ino| self.get(*ino) )
+                self.ino_trie.get(&sequence).and_then(|ino| self.get(*ino))
             })
     }
 }
