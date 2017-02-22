@@ -304,7 +304,7 @@ impl Filesystem for GlusterFilesystem {
                     }
                 }
             }, Err(e) => {
-                println!("mknod err: {:?}", e);
+                println!("mkdir err: {:?}", e);
                 reply.error(ENOENT);
             }
         }
@@ -435,12 +435,36 @@ impl Filesystem for GlusterFilesystem {
 
     fn getxattr(&mut self,
                 _req: &Request,
-                _ino: u64,
-                _name: &OsStr,
+                ino: u64,
+                name: &OsStr,
                 _size: u32,
                 reply: ReplyXattr) {
-        println!("getxattr(ino={:?})", _ino);
-        reply.error(ENOSYS);
+        println!("getxattr(ino={:?})", ino);
+
+        let path = match self.inodes.get(ino) {
+            Some(inode) => inode.path.clone(),
+            None => {
+                reply.error(ENOENT);
+                return;
+            }
+        };
+
+        match self.handle().getxattr(&path, &name.to_string_lossy().into_owned()) {
+            Ok(data) => {
+                match self.stat(&path) {
+                    Ok(file_attr) => {
+                        self.inodes.insert_metadata(&path, &file_attr);
+                        reply.data(&data.as_bytes());
+                    }, Err(e) => {
+                        println!("lookup err: {:?}", e);
+                        reply.error(ENOENT)
+                    }
+                }
+            }, Err(e) => {
+                println!("getxattr err: {:?}", e);
+                reply.error(ENOENT);
+            }
+        }
     }
 
     fn listxattr(&mut self, _req: &Request, _ino: u64, _size: u32, reply: ReplyXattr) {
@@ -448,9 +472,25 @@ impl Filesystem for GlusterFilesystem {
         reply.error(ENOSYS);
     }
 
-    fn removexattr(&mut self, _req: &Request, _ino: u64, _name: &OsStr, reply: ReplyEmpty) {
-        println!("removexattr(ino={:?})", _ino);
-        reply.error(ENOSYS);
+    fn removexattr(&mut self, _req: &Request, ino: u64, name: &OsStr, reply: ReplyEmpty) {
+        println!("removexattr(ino={:?})", ino);
+
+        let path = match self.inodes.get(ino) {
+            Some(inode) => inode.path.clone(),
+            None => {
+                reply.error(ENOENT);
+                return;
+            }
+        };
+
+        match self.handle().removexattr(&path, &name.to_string_lossy().into_owned()) {
+            Ok(_) => {
+                reply.ok();
+            }, Err(e) => {
+                println!("getxattr err: {:?}", e);
+                reply.error(ENOENT);
+            }
+        }
     }
 
     fn access(&mut self, _req: &Request, _ino: u64, _mask: u32, reply: ReplyEmpty) {
