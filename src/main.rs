@@ -423,14 +423,28 @@ impl Filesystem for GlusterFilesystem {
     /// Set an extended attribute.
     fn setxattr(&mut self,
                 _req: &Request,
-                _ino: u64,
-                _name: &OsStr,
-                _value: &[u8],
-                _flags: u32,
+                ino: u64,
+                name: &OsStr,
+                value: &[u8],
+                flags: u32,
                 _position: u32,
                 reply: ReplyEmpty) {
-        println!("setxattr(ino={:?})", _ino);
-        reply.error(ENOSYS);
+        println!("setxattr(ino={:?})", ino);
+        let path = match self.inodes.get(ino) {
+            Some(inode) => inode.path.clone(),
+            None => {
+                reply.error(ENOENT);
+                return;
+            }
+        };
+        match self.handle().setxattr(&path, &name.to_string_lossy().into_owned(), value, flags as i32) {
+            Ok(_) => {
+                reply.ok();
+            }, Err(e) => {
+                println!("setxattr err: {:?}", e);
+                reply.error(ENOENT);
+            }
+        }
     }
 
     fn getxattr(&mut self,
@@ -487,7 +501,7 @@ impl Filesystem for GlusterFilesystem {
             Ok(_) => {
                 reply.ok();
             }, Err(e) => {
-                println!("getxattr err: {:?}", e);
+                println!("removexattr err: {:?}", e);
                 reply.error(ENOENT);
             }
         }
