@@ -14,7 +14,7 @@ use fuse::{FileAttr, Filesystem, FileType, Request, ReplyAttr, ReplyDirectory, R
 use gfapi_sys::gluster::{Gluster, GlusterDirectory};
 use gfapi_sys::glfs::Struct_glfs_fd;
 use libc::{c_uchar, DT_REG, DT_DIR, DT_FIFO, DT_CHR, DT_BLK, DT_LNK, ENOENT, ENOSYS, S_IFMT,
-           S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFIFO, S_IFLNK};
+           S_IFREG, S_IFDIR, S_IFCHR, S_IFBLK, S_IFIFO, S_IFLNK, timespec};
 use time::Timespec;
 
 mod inode;
@@ -239,21 +239,98 @@ impl Filesystem for GlusterFilesystem {
     }
     fn setattr(&mut self,
                _req: &Request,
-               _ino: u64,
-               _mode: Option<u32>,
-               _uid: Option<u32>,
-               _gid: Option<u32>,
+               ino: u64,
+               mode: Option<u32>,
+               uid: Option<u32>,
+               gid: Option<u32>,
                _size: Option<u64>,
-               _atime: Option<Timespec>,
-               _mtime: Option<Timespec>,
+               atime: Option<Timespec>,
+               mtime: Option<Timespec>,
                _fh: Option<u64>,
                _crtime: Option<Timespec>,
                _chgtime: Option<Timespec>,
                _bkuptime: Option<Timespec>,
                _flags: Option<u32>,
                reply: ReplyAttr) {
-        println!("setattr(ino={})", _ino);
-        reply.error(ENOSYS);
+        println!("setattr(ino={})", ino);
+
+        let path = match self.inodes.get(ino) {
+            Some(inode) => inode.path.clone(),
+            None => {
+                reply.error(ENOENT);
+                return;
+            }
+        };
+        let mut times: [timespec; 2] = [timespec {
+                                            tv_sec: 0,
+                                            tv_nsec: 0,
+                                        },
+                                        timespec {
+                                            tv_sec: 0,
+                                            tv_nsec: 0,
+                                        }];
+        if let Some(access_time) = atime {
+            times[0] = timespec {
+                tv_sec: access_time.sec,
+                tv_nsec: access_time.nsec as i64,
+            };
+        }
+        if let Some(m_time) = mtime {
+            times[1] = timespec {
+                tv_sec: m_time.sec,
+                tv_nsec: m_time.nsec as i64,
+            };
+        }
+
+        // Change the access times if requested
+        match self.handle().utimens(&path, &times) {
+            Ok(_) => {
+                // reply.attr(&TTL, &inode.attr);
+            }
+            Err(e) => {
+                println!("utimens err: {:?}", e);
+                // reply.error(ENOENT);
+            }
+        };
+
+        // Change the file mode if requested
+        if let Some(file_mode) = mode {
+            match self.handle().chmod(&path, file_mode) {
+                Ok(_) => {
+                    // reply.attr(&TTL, &inode.attr);
+                }
+                Err(e) => {
+                    println!("chmod err: {:?}", e);
+                    // reply.error(ENOENT);
+                }
+            }
+        }
+
+        // Change the ownership if both uid and gid are specified
+        // TODO: What if only one is set?
+        if uid.is_some() && gid.is_some() {
+            match self.handle().chown(&path, uid.unwrap(), gid.unwrap()) {
+                Ok(_) => {
+                    // reply.attr(&TTL, &inode.attr);
+                }
+                Err(e) => {
+                    println!("chmod err: {:?}", e);
+                    // reply.error(ENOENT);
+                }
+            }
+        }
+
+        // Finally stat and return
+        match self.stat(&path) {
+            Ok(file_attr) => {
+                let inode = self.inodes.insert_metadata(&path, &file_attr);
+                reply.attr(&TTL, &inode.attr)
+            }
+            Err(e) => {
+                println!("lookup err: {:?}", e);
+                reply.error(ENOENT)
+            }
+        }
     }
 
     fn mknod(&mut self,
