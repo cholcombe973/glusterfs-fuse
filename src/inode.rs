@@ -129,6 +129,19 @@ impl InodeStore {
                 self.ino_trie.get(&sequence).and_then(|ino| self.get(*ino))
             })
     }
+
+    pub fn remove(&mut self, ino: u64) {
+        let sequence = {
+            let ref path = self.inode_map[&ino].path;
+            path_to_sequence(&path)
+        };
+
+        self.inode_map.remove(&ino);
+        self.ino_trie.remove(&sequence);
+
+        // assert!(self.inode_map.get(&ino).is_none());
+        // assert!(self.ino_trie.get(&sequence).is_none());
+    }
 }
 
 impl Index<u64> for InodeStore {

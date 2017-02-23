@@ -4,8 +4,10 @@ version = "0.1.0"
 authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 
 [dependencies]
+env_logger = "*"
 fuse = "*"
-sequence_trie = "0.0.13"
 gfapi-sys = "*"
 libc = "*"
+log = "*"
+sequence_trie = "0.0.13"
 time = "*"
