@@ -581,29 +581,29 @@ impl Filesystem for GlusterFilesystem {
             }
             Err(e) => {
                 error!("write err: {:?}", e);
-                reply.error(ENOENT);
+                reply.error(EIO);
             }
         }
     }
 
-    fn flush(&mut self, _req: &Request, _ino: u64, fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
+    fn flush(&mut self, _req: &Request, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
         trace!("flush(ino={:?})", _ino);
-        match self.handle().close(fh as *mut Struct_glfs_fd) {
-            Ok(_) => reply.ok(),
-            Err(_) => reply.error(EIO),
-        }
+        reply.ok();
     }
 
     fn release(&mut self,
                _req: &Request,
                _ino: u64,
-               _fh: u64,
+               fh: u64,
                _flags: u32,
                _lock_owner: u64,
                _flush: bool,
                reply: ReplyEmpty) {
         trace!("release(ino={:?})", _ino);
-        reply.ok();
+        match self.handle().close(fh as *mut Struct_glfs_fd) {
+            Ok(_) => reply.ok(),
+            Err(_) => reply.error(EIO),
+        }
     }
 
     fn fsync(&mut self, _req: &Request, _ino: u64, _fh: u64, _datasync: bool, reply: ReplyEmpty) {
