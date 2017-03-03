@@ -1,3 +1,4 @@
+extern crate clap;
 extern crate env_logger;
 extern crate fuse;
 extern crate gfapi_sys;
@@ -7,10 +8,11 @@ extern crate log;
 extern crate sequence_trie;
 extern crate time;
 
-use std::env;
 use std::ffi::OsStr;
 use std::path::Path;
+use std::str::FromStr;
 
+use clap::{Arg, App};
 use fuse::{FileAttr, Filesystem, FileType, Request, ReplyAttr, ReplyDirectory, ReplyEmpty,
            ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, ReplyData, ReplyXattr, ReplyCreate,
            ReplyLock};
@@ -87,8 +89,6 @@ impl GlusterFilesystem {
            options: MountOptions)
            -> Result<(), std::io::Error> {
         let handle = Gluster::connect(volume_name, server, port).unwrap();
-        // let mut paths = HashMap::new();
-        // paths.insert(ROOT, INode::root());
         let gfs = GlusterFilesystem {
             handle: Some(handle),
             inodes: InodeStore::new(0o550, options.uid, options.gid),
@@ -790,14 +790,49 @@ impl Filesystem for GlusterFilesystem {
 
 fn main() {
     env_logger::init().unwrap();
-    let args: Vec<String> = env::args().collect();
-    let mountpoint = Path::new(&args[1]);
-    if !mountpoint.exists() {
-        trace!("Please create the mount point");
-        return;
-    }
+    let matches = App::new("GlusterFS Fuse Mount")
+        .version("0.1.0")
+        .author("Chris Holcombe <xfactor973@gmail.com>")
+        .about("Replacement for glusterfs C fuse")
+        .arg(Arg::with_name("mount")
+            .help("Mountpoint to bind to")
+            .long("mount")
+            .required(true)
+            .short("m")
+            .takes_value(true)
+            .value_name("mount"))
+        .arg(Arg::with_name("port")
+            .default_value("24007")
+            .help("Port GlusterD is listening on")
+            .long("port")
+            .short("p")
+            .takes_value(true)
+            .validator(|value| match u16::from_str(&value) {
+                Ok(_) => Ok(()),
+                Err(_) => Err(format!("Error: {} is not a valid u16 number", value)),
+            })
+            .value_name("port"))
+        .arg(Arg::with_name("server")
+            .default_value("localhost")
+            .help("The GlusterD server to connect to")
+            .long("server")
+            .short("s")
+            .takes_value(true)
+            .value_name("server"))
+        .arg(Arg::with_name("volume")
+            .help("Gluster volume name to bind use")
+            .long("volume")
+            .required(true)
+            .takes_value(true)
+            .value_name("volume"))
+        .get_matches();
+    let mountpoint = matches.value_of("mount").unwrap();
     trace!("mountpoint: {:?}", mountpoint);
-    let _ = GlusterFilesystem::new("test", "localhost", 24007, MountOptions::new(&mountpoint))
+    // These unwraps are safe because clap has validated the input
+    let _ = GlusterFilesystem::new(matches.value_of("volume").unwrap(),
+                                   matches.value_of("server").unwrap(),
+                                   u16::from_str(&matches.value_of("port").unwrap()).unwrap(),
+                                   MountOptions::new(&mountpoint))
         .unwrap();
     trace!("unmounted");
 }
