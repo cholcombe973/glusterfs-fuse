@@ -7,7 +7,7 @@ authors = ["Chris Holcombe <xfactor973@gmail.com>"]
 clap = "*"
 env_logger = "*"
 fuse = "*"
-gfapi-sys = {path = "../Gfapi-sys"} # "*"
+gfapi-sys = "*"
 libc = "*"
 log = "*"
 sequence_trie = "0.0.13"

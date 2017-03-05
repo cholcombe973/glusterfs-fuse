@@ -71,11 +71,12 @@ impl InodeStore {
 
         if let Some(old_inode) = self.inode_map.insert(ino, inode) {
             if old_inode.path != path {
-                panic!("Corrupted inode store: reinserted conflicting ino {} (path={}, \
-                        oldpath={})",
-                       ino,
-                       path.display(),
-                       old_inode.path.display());
+                // VIM seems to break this assumption
+                //panic!("Corrupted inode store: reinserted conflicting ino {} (path={}, \
+                //        oldpath={})",
+                //       ino,
+                //       path.display(),
+                //       old_inode.path.display());
             } else {
                 println!("Updating ino {} at path {}", ino, path.display());
             }
@@ -111,14 +112,17 @@ impl InodeStore {
         self.ino_trie.get(&sequence).and_then(|ino| self.get(*ino))
     }
 
-    pub fn insert_metadata<P: AsRef<Path>>(&mut self, path: P, metadata: &FileAttr) -> &Inode {
+    pub fn insert_metadata<P: AsRef<Path>>(&mut self,
+                                           path: P,
+                                           metadata: &FileAttr)
+                                           -> Option<&Inode> {
         let ino = metadata.ino.clone();
         println!("insert metadata: {:?} {}",
                  metadata,
                  path.as_ref().display());
 
         self.insert(Inode::new(path, *metadata));
-        self.get(ino).unwrap()
+        self.get(ino)
     }
 
     pub fn child<S: AsRef<OsStr>>(&self, ino: u64, name: S) -> Option<&Inode> {
@@ -138,9 +142,6 @@ impl InodeStore {
 
         self.inode_map.remove(&ino);
         self.ino_trie.remove(&sequence);
-
-        // assert!(self.inode_map.get(&ino).is_none());
-        // assert!(self.ino_trie.get(&sequence).is_none());
     }
 }
 

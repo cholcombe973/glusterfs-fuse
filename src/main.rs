@@ -161,7 +161,7 @@ impl Filesystem for GlusterFilesystem {
         let child_path = parent_inode.path.join(&name);
         match self.stat(&child_path) {
             Ok(file_attr) => {
-                let inode = self.inodes.insert_metadata(&child_path, &file_attr);
+                let inode = self.inodes.insert_metadata(&child_path, &file_attr).unwrap();
                 reply.entry(&TTL, &inode.attr, 0)
             }
             Err(e) => {
@@ -324,7 +324,7 @@ impl Filesystem for GlusterFilesystem {
         // Finally stat and return
         match self.stat(&path) {
             Ok(file_attr) => {
-                let inode = self.inodes.insert_metadata(&path, &file_attr);
+                let inode = self.inodes.insert_metadata(&path, &file_attr).unwrap();
                 reply.attr(&TTL, &inode.attr)
             }
             Err(e) => {
@@ -347,7 +347,7 @@ impl Filesystem for GlusterFilesystem {
             Ok(()) => {
                 match self.stat(&path) {
                     Ok(file_attr) => {
-                        let inode = self.inodes.insert_metadata(&path, &file_attr);
+                        let inode = self.inodes.insert_metadata(&path, &file_attr).unwrap();
                         reply.entry(&TTL, &inode.attr, file_attr.size)
                     }
                     Err(e) => {
@@ -370,7 +370,7 @@ impl Filesystem for GlusterFilesystem {
             Ok(()) => {
                 match self.stat(&path) {
                     Ok(file_attr) => {
-                        let inode = self.inodes.insert_metadata(&path, &file_attr);
+                        let inode = self.inodes.insert_metadata(&path, &file_attr).unwrap();
                         reply.entry(&TTL, &inode.attr, file_attr.size)
                     }
                     Err(e) => {
@@ -450,7 +450,7 @@ impl Filesystem for GlusterFilesystem {
                 match self.stat(&target) {
                     Ok(file_attr) => {
                         // TODO Is this correct?
-                        let inode = self.inodes.insert_metadata(&target, &file_attr);
+                        let inode = self.inodes.insert_metadata(&target, &file_attr).unwrap();
                         reply.entry(&TTL, &inode.attr, file_attr.size)
                     }
                     Err(e) => {
@@ -514,7 +514,7 @@ impl Filesystem for GlusterFilesystem {
             Ok(_) => {
                 match self.stat(&new_path) {
                     Ok(file_attr) => {
-                        let inode = self.inodes.insert_metadata(&new_path, &file_attr);
+                        let inode = self.inodes.insert_metadata(&new_path, &file_attr).unwrap();
                         reply.entry(&TTL, &inode.attr, file_attr.size)
                     }
                     Err(e) => {
@@ -539,7 +539,7 @@ impl Filesystem for GlusterFilesystem {
             reply: ReplyData) {
         trace!("read(ino={:?})", _ino);
 
-        // TODO: Would this be more efficient as a stack allocated slice?
+        // TODO: Use a buffer pool
         let mut fill_buffer: Vec<u8> = Vec::with_capacity(_size as usize);
 
         match self.handle().pread(fh as *mut Struct_glfs_fd,
@@ -549,7 +549,8 @@ impl Filesystem for GlusterFilesystem {
                                   0) {
             Ok(bytes_read) => {
                 fill_buffer.truncate(bytes_read as usize);
-                reply.data(&fill_buffer);
+                println!("bytes_read: {} {:?}", bytes_read, fill_buffer);
+                reply.data(&fill_buffer[..]);
             }
             Err(e) => {
                 error!("read err: {:?}", e);
@@ -669,7 +670,7 @@ impl Filesystem for GlusterFilesystem {
             Ok(data) => {
                 match self.stat(&path) {
                     Ok(file_attr) => {
-                        self.inodes.insert_metadata(&path, &file_attr);
+                        self.inodes.insert_metadata(&path, &file_attr).unwrap();
                         if data.len() as u32 > _size {
                             reply.error(ERANGE);
                             return;
@@ -741,7 +742,7 @@ impl Filesystem for GlusterFilesystem {
             Ok(fh) => {
                 match self.stat(&child_path) {
                     Ok(file_attr) => {
-                        let inode = self.inodes.insert_metadata(&child_path, &file_attr);
+                        let inode = self.inodes.insert_metadata(&child_path, &file_attr).unwrap();
                         reply.created(&TTL, &inode.attr, file_attr.size, fh as u64, flags)
                     }
                     Err(e) => {
